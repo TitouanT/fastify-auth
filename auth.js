@@ -135,7 +135,7 @@ function auth (pluginOptions) {
                 that.nextAuth(err)
               } else {
                 that.currentError = err
-                that.nextAuth(err)
+                return that.completeAuth()
               }
             } else { // sub-array relation is AND
               if (err && that.options.run !== 'all') {
