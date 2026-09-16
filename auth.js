@@ -71,6 +71,7 @@ function auth (pluginOptions) {
       obj.currentError = null
       obj.skipFurtherErrors = false
       obj.skipFurtherArrayErrors = false
+      obj.subArrayError = null
 
       obj.nextAuth()
     }
@@ -89,6 +90,7 @@ function auth (pluginOptions) {
       this.currentError = null
       this.skipFurtherErrors = false
       this.skipFurtherArrayErrors = false
+      this.subArrayError = null
 
       const that = this
 
@@ -129,14 +131,19 @@ function auth (pluginOptions) {
         } else {
           that.j = 0
           that.skipFurtherArrayErrors = false
+          that.subArrayError = null
           that.processAuthArray(func, (err) => {
             if (that.options.relation === 'and') { // sub-array relation is OR
-              if (!err && that.options.run !== 'all') {
-                that.nextAuth(err)
-              } else {
+              if (err && that.options.run !== 'all') {
                 that.currentError = err
-                that.nextAuth(err)
+                return that.completeAuth()
               }
+              if (err && that.options.run === 'all' && !that.skipFurtherErrors) {
+                // Latch the failure so a later passing element cannot clear it.
+                that.skipFurtherErrors = true
+                that.currentError = err
+              }
+              that.nextAuth(err)
             } else { // sub-array relation is AND
               if (err && that.options.run !== 'all') {
                 that.currentError = err
@@ -145,6 +152,12 @@ function auth (pluginOptions) {
                 if (!err && that.options.run !== 'all') {
                   that.currentError = null
                   return that.completeAuth()
+                }
+                if (!err && that.options.run === 'all') {
+                  // Latch the success so a later failing top-level alternative
+                  // cannot mask this passing AND group under run:'all'.
+                  that.skipFurtherErrors = true
+                  that.currentError = null
                 }
                 that.nextAuth(err)
               }
@@ -168,8 +181,13 @@ function auth (pluginOptions) {
               that.processAuthArray(funcs, callback, that.skipFurtherArrayErrors ? null : err)
             }
           } else { // sub-array relation is AND
-            if (err && that.options.run !== 'all') callback(err)
-            else that.processAuthArray(funcs, callback, err)
+            if (err) {
+              // Under run:'all' keep running every function (for side effects),
+              // but latch the failure so a later success can't mask it.
+              if (that.options.run !== 'all') return callback(err)
+              that.subArrayError = err
+            }
+            that.processAuthArray(funcs, callback, that.subArrayError || err)
           }
         })
       }
